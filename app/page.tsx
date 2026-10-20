@@ -105,7 +105,7 @@ export default function Home() {
             <p className="sub">This helps frame general next steps; it does not replace local agronomic advice.</p>
             <div className="field"><label htmlFor="crop">Crop you want to grow</label><input id="crop" placeholder="e.g. groundnut, paddy, tomato" value={crop} maxLength={100} onChange={event => setCrop(event.target.value)} /></div>
             <div className="two">
-              <div className="field"><label htmlFor="season">Season</label><select id="season" value={season} onChange={event => setSeason(event.target.value}><option value="">Select season</option><option>Kharif</option><option>Rabi</option><option>Summer</option><option>Not sure</option></select></div>
+              <div className="field"><label htmlFor="season">Season</label><select id="season" value={season} onChange={event => setSeason(event.target.value)}><option value="">Select season</option><option>Kharif</option><option>Rabi</option><option>Summer</option><option>Not sure</option></select></div>
               <div className="field"><label htmlFor="irrigation">Water source</label><select id="irrigation" value={irrigation} onChange={event => setIrrigation(event.target.value)}><option value="">Select option</option><option>Rain-fed</option><option>Borewell</option><option>Canal</option><option>Drip / sprinkler</option><option>Other / not sure</option></select></div>
             </div>
 
