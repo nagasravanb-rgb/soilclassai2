@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
       }, { status: 503 });
     }
 
-    const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
     const prompt = `You are SoilSense AI, a cautious soil-image observation assistant.
 User-selected region: ${area}. District/nearby area: ${district || "not provided"}.
 Crop of interest: ${crop || "not specified"}. Season: ${season || "not specified"}. Irrigation: ${irrigation || "not specified"}.
@@ -157,8 +157,9 @@ Area information is context only; never infer the exact chemistry of this sample
     });
     const data = await response.json().catch(() => null);
     if (!response.ok) {
+      const providerMessage = typeof data?.error?.message === "string" ? data.error.message.slice(0, 240) : "";
       return NextResponse.json({
-        error: "The configured AI provider did not accept this request. Check that GEMINI_API_KEY is valid and GEMINI_MODEL is available to that key. No result was generated.",
+        error: "Gemini rejected the analysis request. Check the server-side GEMINI_API_KEY, quota/billing access, and GEMINI_MODEL setting." + (providerMessage ? " Provider detail: " + providerMessage : ""),
       }, { status: 502 });
     }
     const analysis = data?.candidates?.[0]?.content?.parts
