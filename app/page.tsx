@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Analysis = { status?: string; analysis?: string; error?: string; source?: string };
 const REGIONS = ["Andhra Pradesh", "Telangana", "Tamil Nadu", "Karnataka", "Other India region", "Outside India"];
@@ -8,6 +8,8 @@ const REGIONS = ["Andhra Pradesh", "Telangana", "Tamil Nadu", "Karnataka", "Othe
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const [area, setArea] = useState("Andhra Pradesh");
   const [district, setDistrict] = useState("");
   const [crop, setCrop] = useState("");
@@ -93,10 +95,15 @@ export default function Home() {
             <h2>01 · Add a soil sample</h2>
             <p className="sub">On mobile, use your camera or choose a saved image. Use natural light and avoid filters for clearer visual observations.</p>
             <div className="upload">
-              {preview ? <img src={preview} alt="Preview of selected soil sample" /> : <div><div className="camera-icon">📷</div><strong>Take a photo or upload an image</strong><small>JPG, PNG, WebP · Up to 5 MB</small></div>}
-              <input aria-label="Take or upload soil photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={event => choose(event.target.files?.[0])} />
+              {preview ? <img src={preview} alt="Preview of selected soil sample" /> : <div><div className="camera-icon">📷</div><strong>Add a soil photo</strong><small>Choose camera or a saved image · JPG, PNG, WebP · Up to 5 MB</small></div>}
+              <input ref={cameraInputRef} aria-label="Take a soil photo with your camera" type="file" accept="image/*" capture="environment" onChange={event => { choose(event.target.files?.[0]); event.currentTarget.value = ""; }} style={{ display: "none" }} />
+              <input ref={galleryInputRef} aria-label="Upload a soil image from your gallery" type="file" accept="image/jpeg,image/png,image/webp" onChange={event => { choose(event.target.files?.[0]); event.currentTarget.value = ""; }} style={{ display: "none" }} />
             </div>
-            {preview && <button className="btn secondary" onClick={() => { setFile(null); setPreview(""); setResult(null); }}>Remove photo / choose another</button>}
+            <div className="two upload-actions">
+              <button type="button" className="btn" onClick={() => cameraInputRef.current?.click()}>📷 Take a photo</button>
+              <button type="button" className="btn secondary" onClick={() => galleryInputRef.current?.click()}>🖼 Upload image</button>
+            </div>
+            {preview && <button type="button" className="btn secondary" onClick={() => { setFile(null); setPreview(""); setResult(null); }}>Remove photo / choose another</button>}
 
             <div className="field"><label htmlFor="area">Country / region</label><select id="area" value={area} onChange={event => setArea(event.target.value)}>{REGIONS.map(region => <option key={region}>{region}</option>)}</select></div>
             <div className="field"><label htmlFor="district">District / nearest area (optional)</label><input id="district" placeholder="e.g. Tirupati, Chittoor" value={district} maxLength={100} onChange={event => setDistrict(event.target.value)} /></div>
