@@ -106,8 +106,11 @@ test("pages render without horizontal overflow", async ({ page, isMobile }) => {
   }
 });
 
-test("results page has no horizontal overflow", async ({ page }) => {
-  await uploadAndAnalyze(page);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  expect(overflow).toBeLessThanOrEqual(1);
-});
+for (const width of [null, 390, 360, 320]) {
+  test(`results page has no horizontal overflow${width ? ` at ${width}px` : ""}`, async ({ page }) => {
+    if (width) await page.setViewportSize({ width, height: 800 });
+    await uploadAndAnalyze(page);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+}
