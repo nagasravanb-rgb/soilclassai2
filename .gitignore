@@ -5,3 +5,12 @@ out
 .env.local
 .env.*.local
 npm-debug.log*
+.env.development.local
+.env.production.local
+.data/
+*.tsbuildinfo
+next-env.d.ts
+test-results/
+playwright-report/
+coverage/
+.vercel
