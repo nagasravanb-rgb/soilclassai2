@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
       }, { status: 503 });
     }
 
-    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
     const prompt = `You are SoilSense AI, a cautious soil-image observation assistant.
 User-selected region: ${area}. District/nearby area: ${district || "not provided"}.
 Crop of interest: ${crop || "not specified"}. Season: ${season || "not specified"}. Irrigation: ${irrigation || "not specified"}.
