@@ -43,7 +43,8 @@ export default function Home() {
   async function openCamera() {
     setCameraError("");
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError("This browser does not support direct camera access here. Use Upload image, or open the site in a current browser over HTTPS.");
+      setCameraError("Direct camera access is unavailable in this browser. Choose a photo using the device camera/gallery picker instead.");
+      cameraInputRef.current?.click();
       return;
     }
     try {
@@ -57,10 +58,12 @@ export default function Home() {
     } catch (error) {
       const name = error instanceof DOMException ? error.name : "";
       setCameraError(name === "NotAllowedError"
-        ? "Camera permission was denied. Allow camera access in your browser/site settings, then try again."
+        ? "Browser camera access was blocked. You can allow it in site settings, or choose a photo from the camera/gallery picker."
         : name === "NotFoundError"
-          ? "No camera was found on this device."
-          : "Could not open the camera. Check that another app is not using it, and allow camera access.");
+          ? "No camera was found. Choose an existing photo instead."
+          : "The live camera could not start in this browser. Opening the device photo picker as a fallback.");
+      // Keep photo upload usable even when getUserMedia fails in a browser or embedded webview.
+      cameraInputRef.current?.click();
     }
   }
 
