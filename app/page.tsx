@@ -97,7 +97,7 @@ export default function Home() {
             <div className="upload">
               {preview ? <img src={preview} alt="Preview of selected soil sample" /> : <div><div className="camera-icon">📷</div><strong>Add a soil photo</strong><small>Choose camera or a saved image · JPG, PNG, WebP · Up to 5 MB</small></div>}
               <input ref={cameraInputRef} aria-label="Take a soil photo with your camera" type="file" accept="image/*" capture="environment" onChange={event => { choose(event.target.files?.[0]); event.currentTarget.value = ""; }} style={{ display: "none" }} />
-              <input ref={galleryInputRef} aria-label="Upload a soil image from your gallery" type="file" accept="image/jpeg,image/png,image/webp" onChange={event => { choose(event.target.files?.[0]); event.currentTarget.value = ""; }} style={{ display: "none" }} />
+              <input ref={galleryInputRef} aria-label="Upload a soil image from your gallery" type="file" accept="image/*" onChange={event => { choose(event.target.files?.[0]); event.currentTarget.value = ""; }} style={{ display: "none" }} />
             </div>
             <div className="two upload-actions">
               <button type="button" className="btn" onClick={() => cameraInputRef.current?.click()}>📷 Take a photo</button>
