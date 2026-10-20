@@ -15,6 +15,7 @@ export async function GET() {
     provider,
     analysisAvailable: provider.configured,
     historyStorage: config.historyStorage,
+    historyAuthRequired: config.historyStorage === "file",
     limits: { maxUploadBytes: config.maxUploadBytes, acceptedTypes: ["image/jpeg", "image/png", "image/webp"] },
   });
 }

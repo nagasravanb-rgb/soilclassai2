@@ -30,12 +30,14 @@ export function describeCameraError(error: unknown): string {
 export default function CameraCapture({ onConfirm, onClose, onUseFallback }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const requestIdRef = useRef(0);
   const [state, setState] = useState<CameraState>("requesting");
   const [error, setError] = useState("");
   const [photo, setPhoto] = useState<{ blob: Blob; url: string } | null>(null);
   const [videoReady, setVideoReady] = useState(false);
 
   const stop = useCallback(() => {
+    requestIdRef.current += 1; // invalidates any pending getUserMedia request
     streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
   }, []);
@@ -49,15 +51,22 @@ export default function CameraCapture({ onConfirm, onClose, onUseFallback }: Cam
       setState("error");
       return;
     }
+    stop();
+    const requestId = ++requestIdRef.current;
     try {
-      stop();
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } },
       });
+      if (requestId !== requestIdRef.current) {
+        // Dialog closed or a newer request started while permission was pending.
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
       streamRef.current = stream;
       setState("live");
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       setError(describeCameraError(err));
       setState("error");
     }

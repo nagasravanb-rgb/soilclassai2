@@ -8,6 +8,7 @@ export interface HealthInfo {
   provider: { name: string; model: string; configured: boolean; isMock: boolean; message: string };
   analysisAvailable: boolean;
   historyStorage: "browser" | "file";
+  historyAuthRequired?: boolean;
   limits: { maxUploadBytes: number; acceptedTypes: string[] };
 }
 
@@ -29,6 +30,22 @@ async function readError(res: Response): Promise<ApiError> {
     // keep generic message
   }
   return new ApiError(message, res.status, code);
+}
+
+const TOKEN_KEY = "soilclass.historyToken.v1";
+
+export function getHistoryToken(): string {
+  try { return window.localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; }
+}
+
+export function setHistoryToken(token: string): void {
+  if (token) window.localStorage.setItem(TOKEN_KEY, token);
+  else window.localStorage.removeItem(TOKEN_KEY);
+}
+
+function historyHeaders(extra?: Record<string, string>): Record<string, string> {
+  const token = getHistoryToken();
+  return { ...extra, ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 }
 
 async function request(path: string, init?: RequestInit, timeoutMs = 20_000): Promise<Response> {
@@ -61,11 +78,18 @@ export async function analyzeSoil(image: Blob, fileName: string, city: string): 
 
 export type HistorySummary = Omit<HistoryRecord, "result">;
 
+export interface AddOutcome {
+  /** Older browser entries removed to make room for the new record. */
+  droppedOlder: number;
+  /** The thumbnail was left out because browser storage was full. */
+  thumbnailDropped: boolean;
+}
+
 export interface HistoryBackend {
   readonly kind: "browser" | "file";
   list(): Promise<HistorySummary[]>;
   get(id: string): Promise<HistoryRecord | null>;
-  add(record: HistoryRecord): Promise<void>;
+  add(record: HistoryRecord): Promise<AddOutcome>;
   clear(): Promise<void>;
 }
 
@@ -85,18 +109,37 @@ function readLocal(): HistoryRecord[] {
   }
 }
 
-function writeLocal(records: HistoryRecord[]): void {
-  let toSave = records.slice(0, LOCAL_MAX);
-  // Drop oldest entries if the browser storage quota is exceeded.
-  while (toSave.length) {
-    try {
-      window.localStorage.setItem(LOCAL_KEY, JSON.stringify(toSave));
-      return;
-    } catch {
-      toSave = toSave.slice(0, -1);
-    }
+export class HistoryQuotaError extends Error {
+  constructor() {
+    super("Browser storage is full, so this result was not saved. Your existing history was kept. Clear some history in Settings to save new analyses.");
+    this.name = "HistoryQuotaError";
   }
-  window.localStorage.removeItem(LOCAL_KEY);
+}
+
+function trySet(records: HistoryRecord[]): boolean {
+  try {
+    window.localStorage.setItem(LOCAL_KEY, JSON.stringify(records));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Saves `record` ahead of `existing`. The stored value is only replaced by a successful write:
+ * first with everything, then without the new thumbnail, then dropping the oldest entries.
+ * Throws HistoryQuotaError (leaving storage untouched) if the new record cannot fit at all.
+ */
+export function writeLocal(record: HistoryRecord, existing: HistoryRecord[]): AddOutcome {
+  const valid = HistoryRecordSchema.parse(record);
+  const older = existing.filter(r => r.id !== valid.id).slice(0, LOCAL_MAX - 1);
+  if (trySet([valid, ...older])) return { droppedOlder: 0, thumbnailDropped: false };
+  const slim = { ...valid, thumbnail: null };
+  const thumbnailDropped = valid.thumbnail !== null;
+  for (let keep = older.length; keep >= 0; keep--) {
+    if (trySet([slim, ...older.slice(0, keep)])) return { droppedOlder: older.length - keep, thumbnailDropped };
+  }
+  throw new HistoryQuotaError();
 }
 
 const stripResult = ({ result: _result, ...summary }: HistoryRecord): HistorySummary => summary;
@@ -110,7 +153,7 @@ export const browserHistory: HistoryBackend = {
     return readLocal().find(r => r.id === id) ?? null;
   },
   async add(record) {
-    writeLocal([record, ...readLocal().filter(r => r.id !== record.id)]);
+    return writeLocal(record, readLocal());
   },
   async clear() {
     window.localStorage.removeItem(LOCAL_KEY);
@@ -120,12 +163,12 @@ export const browserHistory: HistoryBackend = {
 export const serverHistory: HistoryBackend = {
   kind: "file",
   async list() {
-    const res = await request("/api/history", { cache: "no-store" });
+    const res = await request("/api/history", { cache: "no-store", headers: historyHeaders() });
     if (!res.ok) throw await readError(res);
     return (await res.json()).items as HistorySummary[];
   },
   async get(id) {
-    const res = await request(`/api/history/${encodeURIComponent(id)}`, { cache: "no-store" });
+    const res = await request(`/api/history/${encodeURIComponent(id)}`, { cache: "no-store", headers: historyHeaders() });
     if (res.status === 404) return null;
     if (!res.ok) throw await readError(res);
     const parsed = HistoryRecordSchema.safeParse((await res.json()).item);
@@ -134,23 +177,43 @@ export const serverHistory: HistoryBackend = {
   async add(record) {
     const res = await request("/api/history", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: historyHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(record),
     });
     if (!res.ok) throw await readError(res);
+    return { droppedOlder: 0, thumbnailDropped: false };
   },
   async clear() {
-    const res = await request("/api/history", { method: "DELETE" });
+    const res = await request("/api/history", { method: "DELETE", headers: historyHeaders() });
     if (!res.ok) throw await readError(res);
   },
 };
 
+const MODE_KEY = "soilclass.historyMode.v1";
 let backendPromise: Promise<HistoryBackend> | null = null;
+
+/**
+ * Picks browser or server history from /api/health. Only a confirmed answer is cached; if the
+ * health check fails, the last confirmed mode is reused (uncached) or the error is surfaced.
+ */
 export function getHistoryBackend(): Promise<HistoryBackend> {
   backendPromise ??= fetchHealth()
-    .then(h => (h.historyStorage === "file" ? serverHistory : browserHistory))
-    .catch(() => browserHistory);
+    .then(h => {
+      try { window.localStorage.setItem(MODE_KEY, h.historyStorage); } catch { /* storage unavailable */ }
+      return h.historyStorage === "file" ? serverHistory : browserHistory;
+    })
+    .catch(error => {
+      backendPromise = null;
+      let last: string | null = null;
+      try { last = window.localStorage.getItem(MODE_KEY); } catch { /* storage unavailable */ }
+      if (last === "browser") return browserHistory;
+      throw error;
+    });
   return backendPromise;
+}
+
+export function resetHistoryBackendCache(): void {
+  backendPromise = null;
 }
 
 export function toHistoryRecord(result: AnalysisResult, thumbnail: string | null): HistoryRecord {

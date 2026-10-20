@@ -75,6 +75,8 @@ All variables are read on the server only. Only `NEXT_PUBLIC_API_BASE_URL` is ex
 | `MAX_UPLOAD_MB` | `4` | Maximum upload size (1–20). Larger photos are downscaled in the browser first. |
 | `HISTORY_STORAGE` | `browser` | `browser` (localStorage per device) or `file` (server JSON file). |
 | `HISTORY_FILE_PATH` | `.data/history.json` | File used when `HISTORY_STORAGE=file`. |
+| `HISTORY_ACCESS_TOKEN` | — | **Required** with `HISTORY_STORAGE=file`. Shared bearer token for the history API; users enter it in Settings. |
+| `ANALYZE_RATE_LIMIT_PER_MIN` | `10` | Analysis requests per client IP per minute, per server instance (`0` disables). |
 | `NEXT_PUBLIC_API_BASE_URL` | empty (same origin) | Set only if the API is hosted on a different origin. |
 | `MOCK_DELAY_MS` | `0` | Artificial latency for the mock provider. |
 
@@ -127,6 +129,7 @@ Returns an analysis result (`id`, `createdAt`, `city`, `provider`, `classificati
 | 400 / 413 / 415 | `invalid_image` | Corrupted, too small/large, or unsupported image content |
 | 413 | `file_too_large` | Upload exceeds `MAX_UPLOAD_MB` |
 | 422 | `blocked` | The photo does not appear to show soil, or the provider blocked it |
+| 429 | `too_many_requests` | Client exceeded `ANALYZE_RATE_LIMIT_PER_MIN` (see `Retry-After`) |
 | 429 | `rate_limited` | Provider rate limit / quota reached |
 | 502 | `upstream_error` | Provider error (including rejected key or unavailable model; see message) |
 | 502 | `invalid_response` | Provider returned malformed or schema-invalid output |
@@ -135,7 +138,7 @@ Returns an analysis result (`id`, `createdAt`, `city`, `provider`, `classificati
 
 ### History
 
-Server history endpoints are active when `HISTORY_STORAGE=file`. In the default `browser` mode they return `501 history_browser_only` and the app stores history in the browser's localStorage.
+Server history endpoints are active when `HISTORY_STORAGE=file` **and** `HISTORY_ACCESS_TOKEN` is set; every request must send `Authorization: Bearer <token>` (401 `history_unauthorized` otherwise, 503 `history_not_secured` if no token is configured). In the default `browser` mode they return `501 history_browser_only` and the app stores history in the browser's localStorage.
 
 - `GET /api/history` — list summaries (`id`, `createdAt`, `city`, `category`, `confidence`, `summary`).
 - `GET /api/history/{id}` — full saved record (UUID id; 400 if malformed, 404 if missing).
@@ -145,7 +148,8 @@ Server history endpoints are active when `HISTORY_STORAGE=file`. In the default 
 ## History and privacy
 
 - **Browser mode (default):** history lives in localStorage on the current device/browser only. It is not synced between devices and is cleared if browser data is cleared.
-- **File mode:** history is stored in a JSON file on the server. Use only on a host with a persistent writable disk. It is shared by everyone using that server (there are no user accounts).
+- **File mode:** history is stored in a JSON file on the server, protected by the shared `HISTORY_ACCESS_TOKEN` (enter it in Settings). Everyone with the token sees the same history (there are no user accounts). Use only on a host with a persistent writable disk; writes use a lock file so several processes on the same disk can share it, but not separate machines.
+- If browser storage is full, the thumbnail is dropped first, then the oldest entries (the app tells you); if the new result still does not fit, it is not saved and existing history is kept.
 - Saving history and saving image thumbnails can be turned off in **Settings**.
 - Uploaded images are sent to the configured AI provider (Google Gemini by default) for analysis. SoilClass AI itself does not store the original image on the server. Avoid photos that include people or other personal information.
 
@@ -172,6 +176,7 @@ Automated tests use the mock provider or stubbed `fetch`, so they need no API ke
 3. Keep `HISTORY_STORAGE=browser` (the default). Vercel functions have no persistent disk, so file history would be lost.
 4. Keep `MAX_UPLOAD_MB` at 4 or lower: Vercel limits function request bodies to 4.5 MB.
 5. Deploy, then open `/api/health` and confirm `analysisAvailable: true`.
+6. The built-in rate limiter is per function instance. To protect your provider quota from abuse, also enable Vercel Firewall rate limiting for `/api/analyze` and set a spending cap on the provider key.
 
 ### Any Node host / container
 

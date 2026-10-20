@@ -1,4 +1,7 @@
 import { deflateSync } from "zlib";
+import { runSoilAnalysis } from "@/lib/analysis";
+import { getServerConfig } from "@/lib/config";
+import type { HistoryRecord } from "@/lib/schema";
 
 function crc32(buf: Buffer): number {
   let c: number;
@@ -76,4 +79,9 @@ export function analyzeRequest(fields: { city?: string; image?: Blob | string; f
 
 export function pngBlob(): Blob {
   return new Blob([new Uint8Array(makePng())], { type: "image/png" });
+}
+
+export async function makeRecord(city = "Pune"): Promise<HistoryRecord> {
+  const result = await runSoilAnalysis({ imageBytes: makePng(), city, config: getServerConfig({ AI_PROVIDER: "mock" }) });
+  return { id: result.id, createdAt: result.createdAt, city, category: result.classification.category, confidence: result.classification.confidence, summary: result.summary, thumbnail: null, result };
 }

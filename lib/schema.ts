@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+/** Maximum length of a history thumbnail data URL. */
+export const THUMBNAIL_MAX_CHARS = 120_000;
+
 export const SOIL_CATEGORIES = ["sandy", "clayey", "silty", "loamy", "mixed", "undetermined"] as const;
 export const MOISTURE_CONDITIONS = ["dry", "slightly_moist", "moist", "wet", "waterlogged", "undetermined"] as const;
 export const DATA_SOURCES = [
@@ -146,7 +149,7 @@ export const HistoryRecordSchema = z.object({
   summary: text(800),
   thumbnail: z
     .string()
-    .max(120_000)
+    .max(THUMBNAIL_MAX_CHARS)
     .regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/)
     .nullable()
     .default(null),

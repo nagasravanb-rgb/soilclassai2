@@ -2,20 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runSoilAnalysis } from "@/lib/analysis";
-import { getServerConfig } from "@/lib/config";
 import { FileHistoryStore } from "@/lib/history/store";
-import type { HistoryRecord } from "@/lib/schema";
-import { makePng } from "../helpers";
+import { makeRecord } from "../helpers";
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(path.join(tmpdir(), "soilclass-")); });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
-
-export async function makeRecord(city = "Pune"): Promise<HistoryRecord> {
-  const result = await runSoilAnalysis({ imageBytes: makePng(), city, config: getServerConfig({ AI_PROVIDER: "mock" }) });
-  return { id: result.id, createdAt: result.createdAt, city, category: result.classification.category, confidence: result.classification.confidence, summary: result.summary, thumbnail: null, result };
-}
 
 describe("FileHistoryStore", () => {
   it("persists records across store instances and clears them", async () => {
@@ -36,5 +28,15 @@ describe("FileHistoryStore", () => {
     const file = path.join(dir, "history.json");
     writeFileSync(file, "{corrupt");
     expect(await new FileHistoryStore(file).list()).toEqual([]);
+  });
+});
+
+describe("FileHistoryStore across processes", () => {
+  it("does not lose records when separate store instances write concurrently", async () => {
+    const file = path.join(dir, "shared.json");
+    const stores = Array.from({ length: 4 }, () => new FileHistoryStore(file));
+    const records = await Promise.all(Array.from({ length: 12 }, (_, i) => makeRecord(`City ${String.fromCharCode(65 + i)}`)));
+    await Promise.all(records.map((r, i) => stores[i % stores.length].add(r)));
+    expect(await new FileHistoryStore(file).list()).toHaveLength(12);
   });
 });

@@ -49,6 +49,23 @@ describe("analysis pipeline", () => {
     expect(result.recommendations.basis).toBe("general_guidance_without_measured_data");
   });
 
+  it.each([
+    "Nitrogen is 12%",
+    "EC: 1.2",
+    "Organic matter around three percent",
+    "Apply two bags of urea per acre",
+  ])("removes %s from every provider text field", async claim => {
+    const raw = await mockRaw();
+    raw.summary = claim;
+    (raw.recommendations as Record<string, string[]>).nutrientEducation = [claim, "Get a laboratory soil test"];
+    (raw.observations as Record<string, string>).colour = claim;
+    const provider = { name: "fake", model: "x", isMock: false, analyzeSoilImage: async () => raw };
+    const result = await runSoilAnalysis({ imageBytes: makePng(), city: "Pune", config: baseConfig(), provider });
+    const text = JSON.stringify(result);
+    expect(text).not.toContain(claim);
+    expect(result.recommendations.nutrientEducation).toContain("Get a laboratory soil test");
+  });
+
   it("strips fabricated measurements returned by the provider", async () => {
     const raw = await mockRaw();
     (raw.recommendations as Record<string, string[]>).soilManagement = ["Apply 40 kg/ha urea", "Add compost"];

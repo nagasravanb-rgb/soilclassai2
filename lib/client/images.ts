@@ -70,6 +70,16 @@ export async function toScaledDataUrl(file: Blob, maxSide: number, quality = 0.8
   }
 }
 
+/** Builds a history thumbnail that fits within `maxChars`, or null if none fits. */
+export async function makeThumbnail(file: Blob, maxChars: number): Promise<string | null> {
+  for (const [side, quality] of [[240, 0.7], [200, 0.6], [160, 0.55], [120, 0.5]] as const) {
+    const url = await toScaledDataUrl(file, side, quality);
+    if (!url) return null;
+    if (url.length <= maxChars) return url;
+  }
+  return null;
+}
+
 export function downloadText(content: string, fileName: string, mime: string): void {
   const url = URL.createObjectURL(new Blob([content], { type: mime }));
   const a = document.createElement("a");

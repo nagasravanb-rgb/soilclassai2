@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchHealth, getHistoryBackend, type HealthInfo } from "@/lib/client/api";
+import { fetchHealth, getHistoryBackend, getHistoryToken, setHistoryToken, type HealthInfo } from "@/lib/client/api";
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type Preferences } from "@/lib/client/prefs";
 
 export default function SettingsView() {
@@ -9,9 +9,11 @@ export default function SettingsView() {
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [healthError, setHealthError] = useState("");
   const [message, setMessage] = useState("");
+  const [token, setToken] = useState("");
 
   useEffect(() => {
     setPrefs(loadPrefs()); // eslint-disable-line react-hooks/set-state-in-effect
+    setToken(getHistoryToken());
     fetchHealth().then(setHealth).catch(() => setHealthError("Could not reach the server."));
   }, []);
 
@@ -61,6 +63,18 @@ export default function SettingsView() {
         </label>
         <p className="fineprint">Preferences are stored in this browser.</p>
       </section>
+
+      {health?.historyStorage === "file" && (
+        <section className="card">
+          <h2>Server history access</h2>
+          <form onSubmit={e => { e.preventDefault(); setHistoryToken(token.trim()); setMessage("History access token saved in this browser."); }}>
+            <label htmlFor="history-token">History access token</label>
+            <input id="history-token" type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} />
+            <div className="btn-row"><button type="submit" className="btn btn-secondary">Save token</button></div>
+          </form>
+          <p className="fineprint">Server history is protected by a shared token set by the administrator (HISTORY_ACCESS_TOKEN). It is stored only in this browser.</p>
+        </section>
+      )}
 
       <section className="card">
         <h2>Data</h2>

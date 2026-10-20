@@ -8,6 +8,8 @@ export interface ServerConfig {
   maxUploadBytes: number;
   historyStorage: HistoryStorageMode;
   historyFilePath: string;
+  historyAccessToken: string | undefined;
+  analyzeRateLimitPerMin: number;
 }
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
@@ -33,5 +35,7 @@ export function getServerConfig(env: Record<string, string | undefined> = proces
     maxUploadBytes: positiveInt(env.MAX_UPLOAD_MB, 4, 1, 20) * 1024 * 1024,
     historyStorage,
     historyFilePath: env.HISTORY_FILE_PATH?.trim() || ".data/history.json",
+    historyAccessToken: env.HISTORY_ACCESS_TOKEN?.trim() || undefined,
+    analyzeRateLimitPerMin: env.ANALYZE_RATE_LIMIT_PER_MIN?.trim() === "0" ? 0 : positiveInt(env.ANALYZE_RATE_LIMIT_PER_MIN, 10, 1, 10_000),
   };
 }

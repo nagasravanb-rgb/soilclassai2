@@ -1,4 +1,4 @@
-import { errorJson, json } from "@/lib/http";
+import { BodyTooLargeError, errorJson, json, readBodyLimited } from "@/lib/http";
 import { resolveHistoryStore } from "@/lib/history/http";
 import { HistoryRecordSchema } from "@/lib/schema";
 
@@ -7,22 +7,21 @@ export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 400 * 1024;
 
-export async function GET() {
-  const resolved = resolveHistoryStore();
+export async function GET(req: Request) {
+  const resolved = resolveHistoryStore(req);
   if ("response" in resolved) return resolved.response;
   const records = await resolved.store.list();
   return json({ storage: "file", items: records.map(({ result: _result, ...summary }) => summary) });
 }
 
 export async function POST(req: Request) {
-  const resolved = resolveHistoryStore();
+  const resolved = resolveHistoryStore(req);
   if ("response" in resolved) return resolved.response;
-  const text = await req.text();
-  if (text.length > MAX_BODY_BYTES) return errorJson("History record is too large.", 413, "too_large");
   let body: unknown;
   try {
-    body = JSON.parse(text);
-  } catch {
+    body = JSON.parse(new TextDecoder().decode(await readBodyLimited(req, MAX_BODY_BYTES)));
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) return errorJson("History record is too large.", 413, "too_large");
     return errorJson("Request body must be valid JSON.", 400, "invalid_json");
   }
   const parsed = HistoryRecordSchema.safeParse(body);
@@ -33,8 +32,8 @@ export async function POST(req: Request) {
   return json({ storage: "file", item: record }, 201);
 }
 
-export async function DELETE() {
-  const resolved = resolveHistoryStore();
+export async function DELETE(req: Request) {
+  const resolved = resolveHistoryStore(req);
   if ("response" in resolved) return resolved.response;
   const deleted = await resolved.store.clear();
   return json({ storage: "file", deleted });

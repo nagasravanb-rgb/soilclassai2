@@ -4,15 +4,17 @@ import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as analyze } from "@/app/api/analyze/route";
 import { GET as health } from "@/app/api/health/route";
+import { resetRateLimits } from "@/lib/rateLimit";
 import { DELETE as clearHistory, GET as listHistory, POST as addHistory } from "@/app/api/history/route";
 import { GET as getHistory } from "@/app/api/history/[id]/route";
 import { analyzeRequest, makePng, pngBlob } from "../helpers";
 
-const ENV_KEYS = ["AI_PROVIDER", "AI_API_KEY", "AI_MODEL", "GEMINI_API_KEY", "GEMINI_MODEL", "HISTORY_STORAGE", "HISTORY_FILE_PATH", "MAX_UPLOAD_MB", "AI_TIMEOUT_MS"];
+const ENV_KEYS = ["AI_PROVIDER", "AI_API_KEY", "AI_MODEL", "GEMINI_API_KEY", "GEMINI_MODEL", "HISTORY_STORAGE", "HISTORY_FILE_PATH", "MAX_UPLOAD_MB", "AI_TIMEOUT_MS", "HISTORY_ACCESS_TOKEN", "ANALYZE_RATE_LIMIT_PER_MIN"];
 let saved: Record<string, string | undefined>;
 beforeEach(() => {
   saved = Object.fromEntries(ENV_KEYS.map(k => [k, process.env[k]]));
   ENV_KEYS.forEach(k => delete process.env[k]);
+  resetRateLimits();
 });
 afterEach(() => {
   ENV_KEYS.forEach(k => { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; });
@@ -68,6 +70,24 @@ describe("POST /api/analyze", () => {
     const bytes = makePng().subarray(0, 12);
     const res = await analyze(analyzeRequest({ city: "Pune", image: new Blob([new Uint8Array(bytes)], { type: "image/png" }) }));
     expect(res.status).toBe(400);
+  });
+
+  it("rate-limits analysis requests per client", async () => {
+    process.env.ANALYZE_RATE_LIMIT_PER_MIN = "2";
+    const make = () => { const r = analyzeRequest({ city: "Pune", image: pngBlob() }); r.headers.set("x-forwarded-for", "203.0.113.9"); return r; };
+    expect((await analyze(make())).status).toBe(200);
+    expect((await analyze(make())).status).toBe(200);
+    const limited = await analyze(make());
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBeTruthy();
+    expect(await limited.json()).toMatchObject({ code: "too_many_requests" });
+  });
+
+  it("returns 413 for an oversized multipart body without Content-Length", async () => {
+    process.env.MAX_UPLOAD_MB = "1";
+    const big = new ReadableStream({ start(c) { c.enqueue(new Uint8Array(2 * 1024 * 1024)); c.close(); } });
+    const res = await analyze(new Request("http://localhost/api/analyze", { method: "POST", body: big, headers: { "content-type": "multipart/form-data; boundary=x" }, duplex: "half" } as RequestInit));
+    expect(res.status).toBe(413);
   });
 
   it("returns 413 for an oversized image", async () => {
@@ -126,45 +146,70 @@ describe("history endpoints", () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+  const TOKEN = "test-history-token-123";
+  const auth = { Authorization: `Bearer ${TOKEN}` };
+  const req = (init?: RequestInit) => new Request("http://localhost/api/history", { ...init, headers: { ...auth, ...(init?.headers as Record<string, string>) } });
+  const fileMode = () => {
+    process.env.HISTORY_STORAGE = "file";
+    process.env.HISTORY_FILE_PATH = path.join(dir, "h.json");
+    process.env.HISTORY_ACCESS_TOKEN = TOKEN;
+  };
+
+  it("requires a configured access token and a matching bearer token", async () => {
+    process.env.HISTORY_STORAGE = "file";
+    process.env.HISTORY_FILE_PATH = path.join(dir, "h.json");
+    expect((await listHistory(req())).status).toBe(503);
+    process.env.HISTORY_ACCESS_TOKEN = TOKEN;
+    expect((await listHistory(new Request("http://localhost/api/history"))).status).toBe(401);
+    expect((await clearHistory(new Request("http://localhost/api/history", { method: "DELETE", headers: { Authorization: "Bearer wrong" } }))).status).toBe(401);
+    expect((await getHistory(new Request("http://localhost"), { params: Promise.resolve({ id: "00000000-0000-4000-8000-000000000000" }) })).status).toBe(401);
+    expect((await listHistory(req())).status).toBe(200);
+  });
+
+  it("rejects oversized history bodies without Content-Length", async () => {
+    fileMode();
+    const big = new ReadableStream({ start(c) { c.enqueue(new Uint8Array(500 * 1024)); c.close(); } });
+    const res = await addHistory(new Request("http://localhost/api/history", { method: "POST", body: big, headers: auth, duplex: "half" } as RequestInit));
+    expect(res.status).toBe(413);
+  });
+
   it("returns 501 when server-side history is disabled", async () => {
-    const res = await listHistory();
+    const res = await listHistory(req());
     expect(res.status).toBe(501);
     expect(await res.json()).toMatchObject({ code: "history_browser_only" });
   });
 
   it("persists, lists, fetches and clears records in file mode", async () => {
-    process.env.HISTORY_STORAGE = "file";
-    process.env.HISTORY_FILE_PATH = path.join(dir, "h.json");
+    fileMode();
     const result = await (await analyze(analyzeRequest({ city: "Nairobi", image: pngBlob() }))).json();
     const record = { id: result.id, createdAt: result.createdAt, city: result.city, category: result.classification.category, confidence: result.classification.confidence, summary: result.summary, thumbnail: null, result };
 
-    const post = await addHistory(new Request("http://localhost/api/history", { method: "POST", body: JSON.stringify(record) }));
+    const post = await addHistory(req({ method: "POST", body: JSON.stringify(record) }));
     expect(post.status).toBe(201);
 
-    const list = await (await listHistory()).json();
+    const list = await (await listHistory(req())).json();
     expect(list.items).toHaveLength(1);
     expect(list.items[0]).toMatchObject({ id: result.id, city: "Nairobi" });
     expect(list.items[0].result).toBeUndefined();
 
-    const one = await getHistory(new Request("http://localhost"), { params: Promise.resolve({ id: result.id }) });
+    const one = await getHistory(req(), { params: Promise.resolve({ id: result.id }) });
     expect(one.status).toBe(200);
     expect((await one.json()).item.result.id).toBe(result.id);
 
-    const missing = await getHistory(new Request("http://localhost"), { params: Promise.resolve({ id: "00000000-0000-4000-8000-000000000000" }) });
+    const missing = await getHistory(req(), { params: Promise.resolve({ id: "00000000-0000-4000-8000-000000000000" }) });
     expect(missing.status).toBe(404);
-    const invalid = await getHistory(new Request("http://localhost"), { params: Promise.resolve({ id: "../etc" }) });
+    const invalid = await getHistory(req(), { params: Promise.resolve({ id: "../etc" }) });
     expect(invalid.status).toBe(400);
 
-    expect(await (await clearHistory()).json()).toMatchObject({ deleted: 1 });
-    expect((await (await listHistory()).json()).items).toHaveLength(0);
+    expect(await (await clearHistory(req({ method: "DELETE" }))).json()).toMatchObject({ deleted: 1 });
+    expect((await (await listHistory(req())).json()).items).toHaveLength(0);
   });
 
   it("rejects invalid history records", async () => {
-    process.env.HISTORY_STORAGE = "file";
-    process.env.HISTORY_FILE_PATH = path.join(dir, "h.json");
-    const bad = await addHistory(new Request("http://localhost/api/history", { method: "POST", body: JSON.stringify({ id: "x" }) }));
+    fileMode();
+    const bad = await addHistory(req({ method: "POST", body: JSON.stringify({ id: "x" }) }));
     expect(bad.status).toBe(400);
-    const notJson = await addHistory(new Request("http://localhost/api/history", { method: "POST", body: "nope" }));
+    const notJson = await addHistory(req({ method: "POST", body: "nope" }));
     expect(notJson.status).toBe(400);
   });
 });

@@ -1,8 +1,9 @@
 "use client";
 
+import { THUMBNAIL_MAX_CHARS } from "@/lib/schema";
 import { useEffect, useState } from "react";
 import { analyzeSoil, fetchHealth, getHistoryBackend, toHistoryRecord, type HealthInfo } from "@/lib/client/api";
-import { toScaledDataUrl } from "@/lib/client/images";
+import { makeThumbnail, toScaledDataUrl } from "@/lib/client/images";
 import { loadPrefs } from "@/lib/client/prefs";
 import type { AnalysisResult } from "@/lib/schema";
 import { validateCity } from "@/lib/validation";
@@ -54,13 +55,16 @@ export default function AnalyzeFlow() {
       setResult(analysis);
       const prefs = loadPrefs();
       if (prefs.saveHistory) {
-        const thumb = prefs.saveThumbnails ? await toScaledDataUrl(image.blob, 240, 0.7) : null;
+        const thumb = prefs.saveThumbnails ? await makeThumbnail(image.blob, THUMBNAIL_MAX_CHARS) : null;
         try {
           const backend = await getHistoryBackend();
-          await backend.add(toHistoryRecord(analysis, thumb));
-          setHistoryNote(backend.kind === "browser" ? "Saved to history in this browser." : "Saved to server history.");
-        } catch {
-          setHistoryNote("The result could not be saved to history.");
+          const outcome = await backend.add(toHistoryRecord(analysis, thumb));
+          const notes = [backend.kind === "browser" ? "Saved to history in this browser." : "Saved to server history."];
+          if (outcome.thumbnailDropped) notes.push("The thumbnail was left out because browser storage is full.");
+          if (outcome.droppedOlder) notes.push(`${outcome.droppedOlder} older ${outcome.droppedOlder === 1 ? "entry was" : "entries were"} removed to make space.`);
+          setHistoryNote(notes.join(" "));
+        } catch (err) {
+          setHistoryNote(err instanceof Error && err.message ? `Not saved to history: ${err.message}` : "The result could not be saved to history.");
         }
       }
       requestAnimationFrame(() => document.getElementById("result-title")?.scrollIntoView({ behavior: "smooth", block: "start" }));
