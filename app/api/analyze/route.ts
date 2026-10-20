@@ -151,7 +151,7 @@ Area information is context only; never infer the exact chemistry of this sample
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: detectedMime, data: bytes.toString("base64") } }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 900 },
+        generationConfig: { maxOutputTokens: 900, thinkingConfig: { thinkingLevel: "low" } },
       }),
       signal: AbortSignal.timeout(25_000),
     });
