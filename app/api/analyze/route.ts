@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
     if (!key) {
       return NextResponse.json({
         status: "AI provider not configured",
-        error: "Real image analysis is not enabled yet because GEMINI_API_KEY is missing on the server. The image was validated, but no prediction was generated. Add the key to the deployment environment and redeploy.",
+        error: "GEMINI_API_KEY is missing from the server environment. In Vercel, open Project Settings → Environment Variables, add GEMINI_API_KEY with your private Gemini API key for Production (and Preview if needed), save, then redeploy. Do not put the key in frontend code or GitHub. No analysis was generated.",
       }, { status: 503 });
     }
 
