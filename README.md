@@ -21,7 +21,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Add your Gemini API key to `.env.local` for local development. Never commit API keys. In Vercel, add `GEMINI_API_KEY` as a server-side environment variable for Preview/Production and redeploy. The default model is `gemini-3.8-flash`; set `GEMINI_MODEL` to another currently supported vision-capable model only after verifying it is available to your API key.
+Add your Gemini API key to `.env.local` for local development. Never commit API keys. In Vercel, add `GEMINI_API_KEY` as a server-side environment variable for Preview/Production and redeploy. The code and `.env.example` default to `gemini-3.8-flash`. Set `GEMINI_MODEL` only when you need another currently supported vision-capable model that is available to your API key.
 
 ## Checks
 
