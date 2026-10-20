@@ -10,6 +10,10 @@ export default function Home() {
   const [preview, setPreview] = useState("");
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState("");
   const [area, setArea] = useState("Andhra Pradesh");
   const [district, setDistrict] = useState("");
   const [crop, setCrop] = useState("");
@@ -22,6 +26,68 @@ export default function Home() {
   const [result, setResult] = useState<Analysis | null>(null);
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  useEffect(() => {
+    if (cameraOpen && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      void videoRef.current.play().catch(() => setCameraError("Camera preview could not start. Check browser camera permissions."));
+    }
+  }, [cameraOpen]);
+
+  function stopCamera() {
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    setCameraOpen(false);
+  }
+
+  async function openCamera() {
+    setCameraError("");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("This browser does not support direct camera access here. Use Upload image, or open the site in a current browser over HTTPS.");
+      return;
+    }
+    try {
+      stopCamera();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: "environment" } }
+      });
+      streamRef.current = stream;
+      setCameraOpen(true);
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name : "";
+      setCameraError(name === "NotAllowedError"
+        ? "Camera permission was denied. Allow camera access in your browser/site settings, then try again."
+        : name === "NotFoundError"
+          ? "No camera was found on this device."
+          : "Could not open the camera. Check that another app is not using it, and allow camera access.");
+    }
+  }
+
+  function capturePhoto() {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setCameraError("Camera is still starting. Please wait a moment and try again.");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setCameraError("Could not capture the camera image. Please try again.");
+      return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(blob => {
+      if (!blob) {
+        setCameraError("Could not create the photo file. Please try again.");
+        return;
+      }
+      choose(new File([blob], `soil-photo-${Date.now()}.jpg`, { type: "image/jpeg" }));
+      stopCamera();
+    }, "image/jpeg", 0.92);
+  }
 
   function choose(next?: File) {
     if (!next) return;
@@ -100,9 +166,19 @@ export default function Home() {
               <input ref={galleryInputRef} aria-label="Upload a soil image from your gallery" type="file" accept="image/*" onChange={event => { choose(event.target.files?.[0]); event.currentTarget.value = ""; }} style={{ display: "none" }} />
             </div>
             <div className="two upload-actions">
-              <button type="button" className="btn" onClick={() => cameraInputRef.current?.click()}>📷 Take a photo</button>
+              <button type="button" className="btn" onClick={openCamera}>📷 Take a photo</button>
               <button type="button" className="btn secondary" onClick={() => galleryInputRef.current?.click()}>🖼 Upload image</button>
             </div>
+            {cameraError && <p className="result result-error" role="alert">{cameraError}</p>}
+            {cameraOpen && <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,.75)", display: "grid", placeItems: "center", padding: 16 }} className="camera-dialog" role="dialog" aria-modal="true" aria-label="Take a soil photo">
+              <div className="camera-dialog-inner" style={{ background: "white", color: "#17202a", borderRadius: 16, padding: 20, width: "min(100%, 560px)", maxHeight: "90vh", overflow: "auto" }}>
+                <h3>Take a soil photo</h3>
+                <video ref={videoRef} autoPlay playsInline muted className="camera-preview" style={{ display: "block", width: "100%", maxHeight: "55vh", background: "#111", objectFit: "contain", borderRadius: 12 }} />
+                <p className="sub">Keep the soil in frame and use good lighting.</p>
+                {cameraError && <p className="result result-error" role="alert">{cameraError}</p>}
+                <div className="two"><button type="button" className="btn" onClick={capturePhoto}>Capture photo</button><button type="button" className="btn secondary" onClick={stopCamera}>Cancel</button></div>
+              </div>
+            </div>}
             {preview && <button type="button" className="btn secondary" onClick={() => { setFile(null); setPreview(""); setResult(null); }}>Remove photo / choose another</button>}
 
             <div className="field"><label htmlFor="area">Country / region</label><select id="area" value={area} onChange={event => setArea(event.target.value)}>{REGIONS.map(region => <option key={region}>{region}</option>)}</select></div>
